@@ -1,1 +1,2 @@
 BOT_TOKEN = '6276405318:AAFjYNJjlDrvRlFiMOZ9er2-pdiiO_uU4Uo'
+DBNAME = 'Replaces.db'
