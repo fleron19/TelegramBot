@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sqlite3
+from sqlite3 import Connection
+
 from telegram.ext import Application, MessageHandler, filters, CommandHandler
 import telegram
 from config import BOT_TOKEN, DBNAME
@@ -83,7 +85,8 @@ async def announce_cl(update, context):
                     if i != (None,) and i:
                         i = list(i)[0]
                         if str(i) != str(user_id):
-                            loop.create_task((send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
+                            loop.create_task(
+                                (send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
             else:
                 await update.message.reply_text('Некорректный или пустой класс!')
         else:
@@ -92,11 +95,26 @@ async def announce_cl(update, context):
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
+async def addrep(update, context):
+    con: Connection = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    stat = con.cursor().execute("""Select status From User where telid = ?""", (user_id,)).fetchone()
+    print(stat)
+    if stat == ('учитель',):
+        rep = context.args
+        rep[0] = "2023-" + rep[0]
+        con.cursor().execute(
+            """INSERT INTO Replace (day, classRep, lessonRep, numLesson, room, teacherId) values(?, ?, ?, ?, ?, ?)""",
+            (rep[0], rep[1], rep[3], str(int(rep[2]) - 1), rep[4], 1))
+        con.commit()
+
+
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("reg", reg))
     application.add_handler(CommandHandler("les", les))
     application.add_handler(CommandHandler("announce_cl", announce_cl))
+    application.add_handler(CommandHandler("addrep", addrep))
     application.run_polling()
     asyncio.run(send(1156166555, 'Hello there!'))
 
