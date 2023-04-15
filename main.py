@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 '''
 
 
-async def les(update, context):
+async def les(update, conоtext):
     con = sqlite3.connect(DBNAME)
     td = date.today()
     user_id = str(update.message.from_user.id)
@@ -35,8 +35,9 @@ async def les(update, context):
     for elem in rep:
         schedule[elem[0]] = "Замена: " + str(elem[1]) + ' ' + str(elem[2])
     resstr = "\n".join(schedule)
-    await update.message.reply_text('У Вас сегодня:')
-    await update.message.reply_text(resstr)
+    if resstr:
+        await update.message.reply_text('У Вас сегодня:')
+        await update.message.reply_text(resstr)
 
 
 async def reg(update, context):
@@ -95,6 +96,34 @@ async def announce_cl(update, context):
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
+async def announce_st(update, context):
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    if status == ('учитель',):
+        user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+        name = str(context.args[0])
+        message = str(context.args[1])
+        if message:
+            anusers = con.cursor().execute("""Select telId from User where name = ? """, (name,)).fetchall()
+            print(anusers)
+            if anusers:
+                for i in anusers:
+                    if i != (None,) and i:
+                        i = list(i)[0]
+                        if str(i) != str(user_id):
+                            print('sent')
+                            loop.create_task((send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
+            else:
+                await update.message.reply_text('Некорректное имя!')
+        else:
+            await update.message.reply_text('Пустое сообщение!')
+    else:
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
 async def addrep(update, context):
     con: Connection = sqlite3.connect(DBNAME)
     user_id = str(update.message.from_user.id)
@@ -114,6 +143,7 @@ def main():
     application.add_handler(CommandHandler("reg", reg))
     application.add_handler(CommandHandler("les", les))
     application.add_handler(CommandHandler("announce_cl", announce_cl))
+    application.add_handler(CommandHandler("announce_st", announce_st))
     application.add_handler(CommandHandler("addrep", addrep))
     application.run_polling()
     asyncio.run(send(1156166555, 'Hello there!'))
