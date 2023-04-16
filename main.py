@@ -84,12 +84,22 @@ async def announce_cl(update, context):
     user_id = str(update.message.from_user.id)
     status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
     print(status)
+    anusers = []
+    anusersnorm = []
     if status == ('учитель',):
         user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
-        cl = str(context.args[0].lower())
+        cl = context.args[0].split(',')
         message = str(context.args[1])
         if message:
-            anusers = con.cursor().execute("""Select telId from User where class = ? """, (cl,)).fetchall()
+            for i in cl:
+                print(i)
+                anusers.append(con.cursor().execute("""Select telId from User where class = ? """,
+                                                    (i.lower().strip(),)).fetchall())
+            print(anusers)
+            for i in anusers:
+                for q in i:
+                    anusersnorm.append(q)
+            anusers = anusersnorm
             print(anusers)
             if anusers:
                 for i in anusers:
@@ -113,12 +123,16 @@ async def announce_st(update, context):
     user_id = str(update.message.from_user.id)
     status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
     print(status)
+    anusers = []
     if status == ('учитель',):
         user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
-        name = str(context.args[0])
+        names = context.args[0].split(',')
+        print(names)
         message = str(context.args[1])
         if message:
-            anusers = con.cursor().execute("""Select telId from User where name = ? """, (name,)).fetchall()
+            for i in names:
+                print(i)
+                anusers.append(con.cursor().execute("""Select telId from User where name = ? """, (i.strip(),)).fetchone())
             print(anusers)
             if anusers:
                 for i in anusers:
