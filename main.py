@@ -3,11 +3,29 @@ import logging
 import sqlite3
 from sqlite3 import Connection
 
-from telegram.ext import Application, MessageHandler, filters, CommandHandler
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, CommandHandler, PollAnswerHandler
 import telegram
-from config import BOT_TOKEN, DBNAME
+from config import BOT_TOKEN, DBNAME, TOTAL_VOTER_COUNT
 from datetime import *
-
+from telegram import (
+    KeyboardButton,
+    KeyboardButtonPollType,
+    Poll,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    PollAnswerHandler,
+    PollHandler,
+    filters,
+)
 bot = telegram.Bot(BOT_TOKEN)
 '''
 logging.basicConfig(
@@ -57,7 +75,8 @@ async def reg(update, context):
     print(user_id)
     codes = con.cursor().execute("""Select code from User""", ()).fetchall()
     if (code,) not in codes:
-        await update.message.reply_text('Ошибка! Неверный код!')
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('Неверный код!')
     else:
         id = con.cursor().execute("""Select telId from User WHERE code = ?""", (code,)).fetchone()
         print(id)
@@ -109,10 +128,13 @@ async def announce_cl(update, context):
                             loop.create_task(
                                 (send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
             else:
+                await update.message.reply_text('Ошибка!')
                 await update.message.reply_text('Некорректный или пустой класс!')
         else:
+            await update.message.reply_text('Ошибка!')
             await update.message.reply_text('Пустое сообщение!')
     else:
+        await update.message.reply_text('Ошибка!')
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
@@ -132,7 +154,8 @@ async def announce_st(update, context):
         if message:
             for i in names:
                 print(i)
-                anusers.append(con.cursor().execute("""Select telId from User where name = ? """, (i.strip(),)).fetchone())
+                anusers.append(
+                    con.cursor().execute("""Select telId from User where name = ? """, (i.strip(),)).fetchone())
             print(anusers)
             if anusers:
                 for i in anusers:
@@ -143,10 +166,13 @@ async def announce_st(update, context):
                             loop.create_task(
                                 (send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
             else:
+                await update.message.reply_text('Ошибка!')
                 await update.message.reply_text('Некорректное имя!')
         else:
+            await update.message.reply_text('Ошибка!')
             await update.message.reply_text('Пустое сообщение!')
     else:
+        await update.message.reply_text('Ошибка!')
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
@@ -159,10 +185,23 @@ async def add_rep(update, context):
     if stat == ('учитель',):
         rep = context.args
         rep[0] = "2023-" + rep[0]
-        con.cursor().execute(
-            """INSERT INTO Replace (day, classRep, lessonRep, numLesson, room, teacherId) values(?, ?, ?, ?, ?, ?)""",
-            (rep[0], rep[1], rep[3], str(int(rep[2]) - 1), rep[4], 1))
-        con.commit()
+        z = con.cursor().execute(
+            """SELECT * FROM Replace (day, classRep, numLesson) values(?, ?, ?)""",
+            (rep[0], rep[1], str(rep[2] - 1))).fetchall()
+        print(z)
+        if not z:
+            con.cursor().execute(
+                """INSERT INTO Replace (day, classRep, lessonRep, numLesson, room, teacherId)
+                 values(?, ?, ?, ?, ?, ?)""",
+                (rep[0], rep[1], rep[3], str(int(rep[2]) - 1), rep[4], 1))
+            con.commit()
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Такая замена уже есть!')
+
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
 async def remove_rep(update, context):
@@ -181,12 +220,62 @@ async def remove_rep(update, context):
         con.commit()
         await update.message.reply_text('Замена успешно удалена!')
     else:
+        await update.message.reply_text('Ошибка!')
         await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    questions = ["Good", "Really good", "Fantastic", "Great"]
+    message = await context.bot.send_poll(
+        1156166555,
+        "How are you?",
+        questions,
+        is_anonymous=False,
+        allows_multiple_answers=True,
+    )
+    # Save some info about the poll the bot_data for later use in receive_poll_answer
+    payload = {
+        message.poll.id: {
+            "questions": questions,
+            "message_id": message.message_id,
+            "chat_id": update.effective_chat.id,
+            "answers": 0,
+        }
+    }
+    context.bot_data.update(payload)
+
+
+async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    answer = update.poll_answer
+    answered_poll = context.bot_data[answer.poll_id]
+    try:
+        questions = answered_poll["questions"]
+    # this means this poll answer update is from an old poll, we can't do our answering then
+    except KeyError:
+        return
+    selected_options = answer.option_ids
+    answer_string = ""
+    for question_id in selected_options:
+        if question_id != selected_options[-1]:
+            answer_string += questions[question_id] + " and "
+        else:
+            answer_string += questions[question_id]
+    await context.bot.send_message(
+        answered_poll["chat_id"],
+        f"{update.effective_user.mention_html()} feels {answer_string}!",
+        parse_mode=ParseMode.HTML,
+    )
+    answered_poll["answers"] += 1
+    # Close poll after three participants voted
+    if answered_poll["answers"] == TOTAL_VOTER_COUNT:
+        await context.bot.stop_poll(answered_poll["chat_id"], answered_poll["message_id"])
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("reg", reg))
+    application.add_handler(CommandHandler("pool", poll))
+    application.add_handler(PollAnswerHandler(receive_poll_answer))
     application.add_handler(CommandHandler("les", les))
     application.add_handler(CommandHandler("announce_cl", announce_cl))
     application.add_handler(CommandHandler("announce_st", announce_st))
