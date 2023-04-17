@@ -26,6 +26,7 @@ from telegram.ext import (
     PollHandler,
     filters,
 )
+
 bot = telegram.Bot(BOT_TOKEN)
 '''
 logging.basicConfig(
@@ -40,9 +41,11 @@ async def les(update, context):
     context.args = ' '.join(update.message.text.split()[1:]).split('/')
     con = sqlite3.connect(DBNAME)
     td = date.today()
+    '''
     print(type(td))
     td = datetime.strptime("2023-04-18", '%Y-%m-%d').date()
     print(td)
+    '''
     user_id = str(update.message.from_user.id)
     clas = con.cursor().execute("""Select class From User where telid = ?""", (user_id,)).fetchall()
     rep = con.cursor().execute("""Select numLesson, lessonRep, room From Replace where classRep = ? and day = ?""",
@@ -186,8 +189,8 @@ async def add_rep(update, context):
         rep = context.args
         rep[0] = "2023-" + rep[0]
         z = con.cursor().execute(
-            """SELECT * FROM Replace (day, classRep, numLesson) values(?, ?, ?)""",
-            (rep[0], rep[1], str(rep[2] - 1))).fetchall()
+            """SELECT * FROM Replace WHERE day = ? and classRep = ? and numLesson = ?""",
+            (rep[0], rep[1], str(int(rep[2]) - 1))).fetchall()
         print(z)
         if not z:
             con.cursor().execute(
@@ -195,6 +198,7 @@ async def add_rep(update, context):
                  values(?, ?, ?, ?, ?, ?)""",
                 (rep[0], rep[1], rep[3], str(int(rep[2]) - 1), rep[4], 1))
             con.commit()
+            await update.message.reply_text('Замена добавлена')
         else:
             await update.message.reply_text('Ошибка!')
             await update.message.reply_text('Такая замена уже есть!')
@@ -224,30 +228,69 @@ async def remove_rep(update, context):
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
-async def poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    questions = ["Good", "Really good", "Fantastic", "Great"]
-    message = await context.bot.send_poll(
-        1156166555,
-        "How are you?",
-        questions,
-        is_anonymous=False,
-        allows_multiple_answers=True,
-    )
-    # Save some info about the poll the bot_data for later use in receive_poll_answer
-    payload = {
-        message.poll.id: {
-            "questions": questions,
-            "message_id": message.message_id,
-            "chat_id": update.effective_chat.id,
-            "answers": 0,
-        }
-    }
-    context.bot_data.update(payload)
+async def poll(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    questions = [context.args[2].split(', ')]
+    questions = questions[0]
+    print(questions)
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    anusers = []
+    anusersnorm = []
+    if status == ('учитель',):
+        user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+        cl = context.args[0].split(', ')
+        for i in cl:
+            print(i)
+            anusers.append(con.cursor().execute("""Select telId from User where class = ? """,
+                                                (i.lower().strip(),)).fetchall())
+        print(anusers)
+        for i in anusers:
+            for q in i:
+                anusersnorm.append(q)
+        anusers = anusersnorm
+        print(anusers)
+        typ = len(con.cursor().execute("""Select * from Survey """).fetchall()) + 1
+        if anusers:
+            for i in anusers:
+                if i != (None,) and i and i != ('',):
+                    print(i)
+                    i = list(i)[0]
+                    if str(i) != str(user_id):
+                        print(i)
+                        message = await context.bot.send_poll(
+                            int(i),  # int(i)
+                            context.args[1],
+                            questions,
+                            is_anonymous=False,
+                            allows_multiple_answers=False,
+                        )
+                        # Save some info about the poll the bot_data for later use in receive_poll_answer
+                        idpoll = message.message_id
+                        payload = {
+                            message.poll.id: {
+                                "questions": questions,
+                                "message_id": idpoll,
+                                "chat_id": update.effective_chat.id,  # update.effective_chat.id
+                                "answers": 0,
+                            }
+                        }
+                        context.bot_data.update(payload)
+                        con.cursor().execute(
+                            """INSERT INTO Survey (id, text, classes, variants, typ)
+                             values(?, ?, ?, ?, ?)""",
+                            (idpoll, context.args[1], context.args[0], ','.join(questions), typ))
+                        con.commit()
+            await update.message.reply_text('Опрос успешно создан! ID опроса: ' + str(idpoll))
 
 
 async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     answer = update.poll_answer
     answered_poll = context.bot_data[answer.poll_id]
+    idpoll = context.bot_data[answer.poll_id]['message_id']
+    print(idpoll)
     try:
         questions = answered_poll["questions"]
     # this means this poll answer update is from an old poll, we can't do our answering then
@@ -260,29 +303,69 @@ async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
             answer_string += questions[question_id] + " and "
         else:
             answer_string += questions[question_id]
-    await context.bot.send_message(
-        answered_poll["chat_id"],
-        f"{update.effective_user.mention_html()} feels {answer_string}!",
-        parse_mode=ParseMode.HTML,
-    )
+    # await context.bot.send_message(
+    # answered_poll["chat_id"],
+    # f"{update.effective_user.mention_html()} feels {answer_string}!",
+    # parse_mode=ParseMode.HTML,
+    # )
     answered_poll["answers"] += 1
     # Close poll after three participants voted
     if answered_poll["answers"] == TOTAL_VOTER_COUNT:
         await context.bot.stop_poll(answered_poll["chat_id"], answered_poll["message_id"])
+    con = sqlite3.connect(DBNAME)
+    ans = con.cursor().execute("""Select answer From Survey where id = ?""", (idpoll,)).fetchone()
+    print(ans)
+    if ans == ('None',):
+        user_name = \
+        con.cursor().execute("""Select name from User where telId = ? """, (update.effective_user.id,)).fetchone()[0]
+        ansnew = str(answer_string)
+        print(user_name)
+        con.cursor().execute("update Survey set name = ?, answer = ? WHERE id = ?", (user_name, ansnew, idpoll))
+        con.commit()
+    print(ans)
+    print(update.effective_user.id)
+
+
+async def poll_ans(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    idpoll = context.args[0]
+    con = sqlite3.connect(DBNAME)
+    typ = con.cursor().execute("""Select typ From Survey where id = ?""", (idpoll,)).fetchall()
+    print(typ)
+    ans = []
+    # for elem in ids:
+    answer = con.cursor().execute("""Select name, answer From Survey where typ = ?""", (typ[0][0],)).fetchall()
+    for elem in answer:
+        if elem[0] != 'None':
+            ans.append(elem)
+    print(ans)
+    if ans == 'None' or ans == None or ans == ('None',) or ans == []:
+        await update.message.reply_text('Опрос ' + str(idpoll) + ' никто ещё не прошел!')
+    else:
+        print(ans)
+        resstr = []
+        ansres = []
+        for elem in list(ans):
+            elem = ' - '.join(elem)
+            resstr.append(elem)
+        resstr = '\n'.join(resstr)
+        if resstr:
+            await update.message.reply_text('Ответы на опрос ' + str(idpoll) + ':')
+            await update.message.reply_text(resstr)
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("reg", reg))
-    application.add_handler(CommandHandler("pool", poll))
-    application.add_handler(PollAnswerHandler(receive_poll_answer))
     application.add_handler(CommandHandler("les", les))
     application.add_handler(CommandHandler("announce_cl", announce_cl))
     application.add_handler(CommandHandler("announce_st", announce_st))
+    application.add_handler(CommandHandler("poll", poll))
     application.add_handler(CommandHandler("add_rep", add_rep))
     application.add_handler(CommandHandler("remove_rep", remove_rep))
+    application.add_handler(CommandHandler("poll_ans", poll_ans))
+    application.add_handler(PollAnswerHandler(receive_poll_answer))
     application.run_polling()
-    asyncio.run(send(1156166555, 'Hello there!'))
 
 
 if __name__ == '__main__':
