@@ -6,7 +6,7 @@ from sqlite3 import Connection
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, PollAnswerHandler
 import telegram
-from config import BOT_TOKEN, DBNAME, TOTAL_VOTER_COUNT
+from config import BOT_TOKEN, DBNAME, TOTAL_VOTER_COUNT, HELP_DICT_T, HELP_DICT_ST
 from datetime import *
 from telegram import (
     KeyboardButton,
@@ -26,6 +26,8 @@ from telegram.ext import (
     PollHandler,
     filters,
 )
+import xlsxwriter
+from random import *
 
 bot = telegram.Bot(BOT_TOKEN)
 '''
@@ -74,29 +76,41 @@ async def reg(update, context):
     context.args = context.args.split('/')
     user_id = str(update.message.from_user.id)
     code = str(context.args[0])
-    print(code)
-    print(user_id)
-    codes = con.cursor().execute("""Select code from User""", ()).fetchall()
-    if (code,) not in codes:
-        await update.message.reply_text('Ошибка!')
-        await update.message.reply_text('Неверный код!')
+    if code == '1h832f1':
+        await update.message.reply_text('Зачем ты регестрируешь код и help? :P')
     else:
-        id = con.cursor().execute("""Select telId from User WHERE code = ?""", (code,)).fetchone()
-        print(id)
-        if id == (None,) or id == ('',):
-            con.cursor().execute("""Update User set telId = ? WHERE code = ?""", (user_id, code))
-            con.commit()
-            name = con.cursor().execute("""SELECT name From User WHERE code = ?""", (code,)).fetchone()
-            print(name)
-            resstr = 'Регистрация прошла успешно! Привет, ' + str(name[0]) + '!'
-            await update.message.reply_text(resstr)
+        print(code)
+        print(user_id)
+        codes = con.cursor().execute("""Select code from User""", ()).fetchall()
+        if (code,) not in codes:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Неверный код!')
         else:
-            await update.message.reply_text(resstr)
+            id = con.cursor().execute("""Select telId from User WHERE code = ?""", (code,)).fetchone()
+            print(id)
+            if id == (None,) or id == ('',):
+                con.cursor().execute("""Update User set telId = ? WHERE code = ?""", (user_id, code))
+                con.commit()
+                name = con.cursor().execute("""SELECT name From User WHERE code = ?""", (code,)).fetchone()[0]
+                status = con.cursor().execute("""SELECT status From User WHERE code = ?""", (code,)).fetchone()[0]
+                print(name)
+                if status == 'ученик':
+                    resstr = 'Регистрация прошла успешно! Привет, ' + str(name) + '!'
+                else:
+                    resstr = 'Регистрация прошла успешно! Здравсивуйте, ' + str(status) + '!'
+                await update.message.reply_text(resstr)
+            else:
+                await update.message.reply_text(resstr)
 
 
 async def send(chat, msg):
     application = Application.builder().token(BOT_TOKEN).build()
     await application.bot.send_message(chat_id=chat, text=msg)
+
+
+async def sendDocument(chat, doc):
+    application = Application.builder().token(BOT_TOKEN).build()
+    await application.bot.send_document(chat_id=chat, document=doc)
 
 
 async def announce_cl(update, context):
@@ -241,6 +255,7 @@ async def poll(update, context):
     anusersnorm = []
     if status == ('учитель',):
         user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+        print(user_name)
         cl = context.args[0].split(', ')
         for i in cl:
             print(i)
@@ -260,6 +275,9 @@ async def poll(update, context):
                     i = list(i)[0]
                     if str(i) != str(user_id):
                         print(i)
+                        loop = asyncio.get_event_loop()
+                        await loop.create_task(
+                            (send(int(i), str('Тебе пришел опрос от ' + user_name))))
                         message = await context.bot.send_poll(
                             int(i),  # int(i)
                             context.args[1],
@@ -279,9 +297,9 @@ async def poll(update, context):
                         }
                         context.bot_data.update(payload)
                         con.cursor().execute(
-                            """INSERT INTO Survey (id, text, classes, variants, typ)
-                             values(?, ?, ?, ?, ?)""",
-                            (idpoll, context.args[1], context.args[0], ','.join(questions), typ))
+                            """INSERT INTO Survey (id, text, classes, variants, typ, author)
+                             values(?, ?, ?, ?, ?, ?)""",
+                            (idpoll, context.args[1], context.args[0], ','.join(questions), typ, user_name))
                         con.commit()
             await update.message.reply_text('Опрос успешно создан! ID опроса: ' + str(idpoll))
 
@@ -317,7 +335,8 @@ async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
     print(ans)
     if ans == ('None',):
         user_name = \
-        con.cursor().execute("""Select name from User where telId = ? """, (update.effective_user.id,)).fetchone()[0]
+            con.cursor().execute("""Select name from User where telId = ? """, (update.effective_user.id,)).fetchone()[
+                0]
         ansnew = str(answer_string)
         print(user_name)
         con.cursor().execute("update Survey set name = ?, answer = ? WHERE id = ?", (user_name, ansnew, idpoll))
@@ -326,32 +345,135 @@ async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
     print(update.effective_user.id)
 
 
+async def ans_table(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    idpoll = context.args[0]
+    print(idpoll)
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+    author = con.cursor().execute("""Select author From Survey where id = ?""", (idpoll,)).fetchone()[0]
+    print(user_name, author)
+    if user_name == author or 1 == 1:
+        typ = con.cursor().execute("""Select typ From Survey where id = ?""", (str(idpoll),)).fetchall()
+        print(typ)
+        ans = []
+        # for elem in ids:
+        answer = con.cursor().execute("""Select name, answer From Survey where typ = ?""", (typ[0][0],)).fetchall()
+        for elem in answer:
+            if elem[0] != 'None':
+                ans.append(elem)
+        print(ans)
+        if ans == 'None' or ans == None or ans == ('None',) or ans == []:
+            await update.message.reply_text('Опрос ' + str(idpoll) + ' никто ещё не прошел!')
+        else:
+            print(ans)
+            resstr = []
+            ansres = []
+            for elem in ans:
+                data = [('Пользователь', 'Ответ')]
+                for elem in ans:
+                    data.append((elem[0], elem[1]))
+        print(data)
+        title = 'Ответы на опрос ' + idpoll + '.xlsx'
+        workbook = xlsxwriter.Workbook(title)
+        worksheet = workbook.add_worksheet()
+        for row, (nameans, ans) in enumerate(data):
+            worksheet.write(row, 0, nameans)
+            worksheet.write(row, 1, ans)
+        row += 1
+        workbook.close()
+        await sendDocument(user_id, title)
+
+
+async def new_user(update, context):
+    con = sqlite3.connect(DBNAME)
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    name = context.args[0]
+    clas = context.args[1]
+    stat = context.args[2]
+    codes = con.cursor().execute("""Select code From User""").fetchall()
+    print(codes)
+    for elem in codes:
+        elem = elem[0]
+    code = -1
+    while code in codes or code == -1:
+        code = []
+        for i in range(0, 3):
+            code.append(chr(randrange(97, 123)))
+        for i in range(0, 3):
+            code.append(str(randrange(0, 10)))
+        code = ''.join(code)
+    con.cursor().execute(
+        """INSERT INTO User (name, status, class, code)
+         values(?, ?, ?, ?)""",
+        (name, stat, clas, code))
+    con.commit()
+    await update.message.reply_text('Пользователь успешно добавлен! ' + name + " с кодом:" + code)
+
+
 async def poll_ans(update, context):
     context.args = ' '.join(update.message.text.split()[1:]).split('/')
     idpoll = context.args[0]
     con = sqlite3.connect(DBNAME)
-    typ = con.cursor().execute("""Select typ From Survey where id = ?""", (idpoll,)).fetchall()
-    print(typ)
-    ans = []
-    # for elem in ids:
-    answer = con.cursor().execute("""Select name, answer From Survey where typ = ?""", (typ[0][0],)).fetchall()
-    for elem in answer:
-        if elem[0] != 'None':
-            ans.append(elem)
-    print(ans)
-    if ans == 'None' or ans == None or ans == ('None',) or ans == []:
-        await update.message.reply_text('Опрос ' + str(idpoll) + ' никто ещё не прошел!')
-    else:
+    user_id = str(update.message.from_user.id)
+    user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+    author = con.cursor().execute("""Select author From Survey where id = ?""", (idpoll,)).fetchone()[0]
+    if user_name == author:
+        typ = con.cursor().execute("""Select typ From Survey where id = ?""", (idpoll,)).fetchall()
+        print(typ)
+        ans = []
+        # for elem in ids:
+        answer = con.cursor().execute("""Select name, answer From Survey where typ = ?""", (typ[0][0],)).fetchall()
+        for elem in answer:
+            if elem[0] != 'None':
+                ans.append(elem)
         print(ans)
-        resstr = []
-        ansres = []
-        for elem in list(ans):
-            elem = ' - '.join(elem)
-            resstr.append(elem)
-        resstr = '\n'.join(resstr)
-        if resstr:
-            await update.message.reply_text('Ответы на опрос ' + str(idpoll) + ':')
-            await update.message.reply_text(resstr)
+        if ans == 'None' or ans == None or ans == ('None',) or ans == []:
+            await update.message.reply_text('Опрос ' + str(idpoll) + ' никто ещё не прошел!')
+        else:
+            print(ans)
+            resstr = []
+            ansres = []
+            for elem in list(ans):
+                elem = ' - '.join(elem)
+                resstr.append(elem)
+            resstr = '\n'.join(resstr)
+            if resstr:
+                await update.message.reply_text('Ответы на опрос ' + str(idpoll) + ':')
+                await update.message.reply_text(resstr)
+    else:
+        await update.message.reply_text('Вы не являетесь автором опроса!')
+
+
+async def help(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    print(context.args)
+    if context.args == ['']:
+        status = con.cursor().execute("""Select status From User where telid = ?""", (user_id,)).fetchone()[0]
+        if status == 'учитель':
+            for key in HELP_DICT_T:
+                await update.message.reply_text(HELP_DICT_T[key][0])
+        elif status == 'ученик':
+            for key in HELP_DICT_T:
+                await update.message.reply_text(HELP_DICT_ST[key][0])
+    else:
+        command = context.args[0]
+        status = con.cursor().execute("""Select status From User where telid = ?""", (user_id,)).fetchone()[0]
+        if status == 'учитель':
+            try:
+                for i in HELP_DICT_T[command]:
+                    await update.message.reply_text(i)
+            except:
+                await update.message.reply_text('Такой команды нет!')
+        elif status == 'ученик':
+            try:
+                for i in HELP_DICT_ST[command]:
+                    await update.message.reply_text(i)
+            except:
+                await update.message.reply_text('Такой команды нет!')
 
 
 def main():
@@ -365,6 +487,9 @@ def main():
     application.add_handler(CommandHandler("remove_rep", remove_rep))
     application.add_handler(CommandHandler("poll_ans", poll_ans))
     application.add_handler(PollAnswerHandler(receive_poll_answer))
+    application.add_handler(CommandHandler("ans_table", ans_table))
+    application.add_handler(CommandHandler("new_user", new_user))
+    application.add_handler(CommandHandler("help", help))
     application.run_polling()
 
 
