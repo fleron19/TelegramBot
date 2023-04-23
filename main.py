@@ -6,7 +6,7 @@ from sqlite3 import Connection
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, PollAnswerHandler
 import telegram
-from config import BOT_TOKEN, DBNAME, TOTAL_VOTER_COUNT, HELP_DICT_T, HELP_DICT_ST
+from config import BOT_TOKEN, DBNAME, TOTAL_VOTER_COUNT, HELP_DICT_T, HELP_DICT_ST, HELP_DICT_NOREG
 from datetime import *
 from telegram import (
     KeyboardButton,
@@ -73,11 +73,10 @@ async def les(update, context):
 async def reg(update, context):
     context.args = ' '.join(update.message.text.split()[1:]).split('/')
     con = sqlite3.connect(DBNAME)
-    context.args = context.args.split('/')
     user_id = str(update.message.from_user.id)
     code = str(context.args[0])
     if code == '1h832f1':
-        await update.message.reply_text('Зачем ты регестрируешь код и help? :P')
+        await update.message.reply_text('Зачем ты регестрируешь код из help? :P')
     else:
         print(code)
         print(user_id)
@@ -113,7 +112,7 @@ async def sendDocument(chat, doc):
     await application.bot.send_document(chat_id=chat, document=doc)
 
 
-async def announce_cl(update, context):
+async def mes_cl(update, context):
     context.args = ' '.join(update.message.text.split()[1:]).split('/')
     loop = asyncio.get_event_loop()
     con = sqlite3.connect(DBNAME)
@@ -155,7 +154,50 @@ async def announce_cl(update, context):
         await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
-async def announce_st(update, context):
+async def mes_gr(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    anusers = []
+    anusersnorm = []
+    if status == ('учитель',):
+        user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+        group = context.args[0]
+        message = str(context.args[1])
+        if message:
+            try:
+                names = \
+                    con.cursor().execute("""Select participants from Groups where name= ? """, (group,)).fetchone()[0]
+            except:
+                names = \
+                    con.cursor().execute("""Select participants from Groups where shortName = ? """,
+                                         (group,)).fetchone()[0]
+                names = names.split(',')
+            for i in names:
+                anusers.append(
+                    con.cursor().execute("""Select telId from User where name = ? """, (i,)).fetchone()[0]
+                )
+            print(anusers)
+            if anusers:
+                for i in anusers:
+                    if str(i) != str(user_id):
+                        loop.create_task(
+                            (send(int(i), str('Тебе пришло сообщение от ' + user_name + ': ' + message))))
+            else:
+                await update.message.reply_text('Ошибка!')
+                await update.message.reply_text('Некорректная или пустая группа!')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Пустое сообщение!')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def mes_st(update, context):
     context.args = ' '.join(update.message.text.split()[1:]).split('/')
     loop = asyncio.get_event_loop()
     con = sqlite3.connect(DBNAME)
@@ -191,6 +233,40 @@ async def announce_st(update, context):
     else:
         await update.message.reply_text('Ошибка!')
         await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def mes_t(update, context):
+    loop = asyncio.get_event_loop()
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    con: Connection = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    name = context.args[0]
+    teacherst = con.cursor().execute("""Select name from User where status = ? """, ('учитель',)).fetchall()
+    teachers = []
+    for i in teacherst:
+        teachers.append(list(i)[0])
+    if name in teachers:
+        user_name = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+        blacklisted = con.cursor().execute("""Select studentName from Blacklist WHERE teacherName = ?""",
+                                           (name,)).fetchall()
+        print(blacklisted)
+        blacklisted = list(blacklisted[0])[0].split(',')
+        print(blacklisted)
+        if user_name not in blacklisted:
+            message = str(context.args[1])
+            if message:
+                i = con.cursor().execute("""Select telId from User where name = ? """, (name.strip(),)).fetchone()[0]
+                loop.create_task(
+                    (send(int(i), str('Вам пришло сообщение от ' + user_name + ': ' + message))))
+            else:
+                await update.message.reply_text('Ошибка!')
+                await update.message.reply_text('Пустое сообщение!')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Вы в черном списке у учителя!')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('Учителя с таким именем нет!')
 
 
 async def add_rep(update, context):
@@ -457,7 +533,7 @@ async def help(update, context):
             for key in HELP_DICT_T:
                 await update.message.reply_text(HELP_DICT_T[key][0])
         elif status == 'ученик':
-            for key in HELP_DICT_T:
+            for key in HELP_DICT_ST:
                 await update.message.reply_text(HELP_DICT_ST[key][0])
     else:
         command = context.args[0]
@@ -474,14 +550,253 @@ async def help(update, context):
                     await update.message.reply_text(i)
             except:
                 await update.message.reply_text('Такой команды нет!')
+        else:
+            try:
+                for i in HELP_DICT_NOREG[command]:
+                    await update.message.reply_text(i)
+            except:
+                await update.message.reply_text('Такой команды нет!')
+
+
+async def add_gr(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    anusers = []
+    if status == ('учитель',):
+        shortNames = con.cursor().execute("""Select shortName From Groups""").fetchall()
+        print(shortNames)
+        if context.args[1] in shortNames[0]:
+            participants = con.cursor().execute("""Select participants from Groups WHERE shortName = ?""",
+                                                (context.args[1],)).fetchone()
+            participants = participants[0]
+            if participants is None:
+                participants = context.args[0]
+                con.cursor().execute("""Update Groups set participants = ? WHERE shortName = ?""",
+                                     (participants, context.args[1]))
+                con.commit()
+            elif context.args[0] not in participants.split(','):
+                participants = participants + ',' + context.args[0]
+                con.cursor().execute("""Update Groups set participants = ? WHERE shortName = ?""",
+                                     (participants, context.args[1]))
+                con.commit()
+                gr = con.cursor().execute("""Select name from Groups WHERE shortName = ?""",
+                                          (context.args[1],)).fetchone()
+                await update.message.reply_text(
+                    'Пользователь ' + context.args[0] + ' успешно добавлен в группу ' + str(gr[0]))
+                telId = con.cursor().execute("""Select telId from User WHERE name = ?""", (context.args[0],)).fetchone()
+                group = con.cursor().execute("""Select name from Groups WHERE shortName = ?""",
+                                             (context.args[1],)).fetchone()
+                if telId:
+                    loop.create_task(
+                        send(telId[0], str('Вас добавили в группу ' + group[0])))
+            else:
+                await update.message.reply_text('Ошибка!')
+                await update.message.reply_text('Пользователь ' + context.args[0] + ' уже находится в этой группе')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Группы с таким сокращением не существует')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def del_gr(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    anusers = []
+    if status == ('учитель',):
+        shortNames = con.cursor().execute("""Select shortName From Groups""").fetchall()
+        print(shortNames)
+        if context.args[1] in shortNames[0]:
+            participants = con.cursor().execute("""Select participants from Groups WHERE shortName = ?""",
+                                                (context.args[1],)).fetchone()
+            participants = participants[0]
+            if participants is None:
+                participants = ''
+            if context.args[0] in participants.split(','):
+                participants = participants.split(',')
+                participants.remove(context.args[0])
+                participants = ','.join(participants)
+                con.cursor().execute("""Update Groups set participants = ? WHERE shortName = ?""",
+                                     (participants, context.args[1]))
+                con.commit()
+                gr = con.cursor().execute("""Select name from Groups WHERE shortName = ?""",
+                                          (context.args[1],)).fetchone()
+                await update.message.reply_text(
+                    'Пользователь ' + context.args[0] + ' успешно удален из группы ' + str(gr[0]))
+            else:
+                await update.message.reply_text('Ошибка!')
+                await update.message.reply_text('Пользователь ' + context.args[0] + ' не состоит в этой группе')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Группы с таким сокращением не существует')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def delete_gr(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(status)
+    anusers = []
+    if status == ('учитель',):
+        shortNames = con.cursor().execute("""Select shortName From Groups""").fetchall()
+        if context.args[0] in shortNames[0]:
+            gr = con.cursor().execute("""Select name from Groups WHERE shortName = ?""", (context.args[0],)).fetchone()
+            con.cursor().execute("""DELETE from Groups WHERE shortName = ?""", (context.args[0],))
+            con.commit()
+            await update.message.reply_text('Группа ' + str(gr[0]) + ' успешно удалена')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Группы с таким сокращением не существует')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def create_gr(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    print(45)
+    anusers = []
+    if status == ('учитель',):
+        names = con.cursor().execute("""Select name From Groups""").fetchall()
+        if len(context.args) == 2:
+            if context.args[0] not in names:
+                shortNames = con.cursor().execute("""Select shortName From Groups""").fetchall()
+                if context.args[1] not in shortNames:
+                    con.cursor().execute(
+                        """INSERT INTO Groups (name, shortName)
+                         values(?, ?)""",
+                        (context.args[0], context.args[1]))
+                    con.commit()
+                    await update.message.reply_text('Группа добавлена успешно!')
+                else:
+                    await update.message.reply_text('Ошибка!')
+                    await update.message.reply_text('Такое сокращение уже существует!')
+            else:
+                await update.message.reply_text('Ошибка!')
+                await update.message.reply_text('Такая группа уже существует!')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text(
+                'Неверное количество аргументов! Вы можете посмотреть функцию: /help create_gr')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def start(update, context):
+    await update.message.reply_text('SchoolBot v 1.0')
+    await update.message.reply_text('Бот для удобного взаимодействия учителей и учеников в школе')
+    await update.message.reply_text('Введите /help для помощи по командам')
+
+
+async def add_bl(update, context):
+    context.args = ' '.join(update.message.text.split()[1:]).split('/')
+    con = sqlite3.connect(DBNAME)
+    name = context.args[0]
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    userst = con.cursor().execute("""Select name from User where status = ? """, ('ученик',)).fetchall()
+    users = []
+    for i in userst:
+        users.append(list(i)[0])
+    print(users)
+    tname = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+    if status == ('учитель',):
+        blacklisted = con.cursor().execute("""Select studentName from Blacklist WHERE teacherName = ?""",
+                                           (tname,)).fetchall()
+        print(blacklisted)
+        if name in users:
+            if not blacklisted:
+                blacklisted = name
+                con.cursor().execute("""insert into Blacklist (studentName, teacherName) values(?, ?)""",
+                                     (blacklisted, tname))
+                con.commit()
+                await update.message.reply_text(
+                    'Пользователь ' + name + ' успешно добавлен в черный список')
+            else:
+                blacklisted = list(blacklisted[0])[0].split(',')
+                if name not in blacklisted:
+                    blacklisted.append(name)
+                    blacklisted = ','.join(blacklisted)
+                    con.cursor().execute("""Update Blacklist set studentName = ? WHERE teacherName = ?""",
+                                         (blacklisted, tname))
+                    con.commit()
+                    await update.message.reply_text(
+                        'Пользователь ' + name + ' успешно добавлен в черный список')
+                else:
+                    await update.message.reply_text('Ошибка!')
+                    await update.message.reply_text('Пользователь уже в черном списке!')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Такого пользователя нет или он не ученик!')
+
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
+
+
+async def del_bl(update, context):
+    name = context.args[0]
+    loop = asyncio.get_event_loop()
+    con = sqlite3.connect(DBNAME)
+    user_id = str(update.message.from_user.id)
+    status = con.cursor().execute("""Select status from User where telId = ? """, (user_id,)).fetchone()
+    tname = con.cursor().execute("""Select name from User where telId = ? """, (user_id,)).fetchone()[0]
+    print(status)
+    if status == ('учитель',):
+        blacklisted = con.cursor().execute("""Select studentName From Blacklist where teacherName = ?""", (tname,)).fetchall()
+        blacklisted = list(blacklisted[0])[0].split(',')
+        if name in blacklisted:
+            blacklisted.remove(name)
+            blacklisted = ','.join(blacklisted)
+            con.cursor().execute("""Update Blacklist set studentName = ? WHERE teacherName = ?""",
+                                 (blacklisted, tname))
+            con.commit()
+            blacklisted = con.cursor().execute("""Select studentName From Blacklist where teacherName = ?""",
+                                               (tname,)).fetchall()
+            blacklisted = list(blacklisted[0])[0].split(',')
+            print(blacklisted)
+            if blacklisted == ['']:
+                con.cursor().execute("""Delete From Blacklist where teacherName = ?""",
+                                                   (tname,)).fetchall()
+                con.commit()
+
+            await update.message.reply_text(
+                'Пользователь ' + name + ' успешно удален из черного списка')
+        else:
+            await update.message.reply_text('Ошибка!')
+            await update.message.reply_text('Такого пользователя нет в черном списке!')
+    else:
+        await update.message.reply_text('Ошибка!')
+        await update.message.reply_text('У вас нет прав на использование этой команды!')
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("reg", reg))
     application.add_handler(CommandHandler("les", les))
-    application.add_handler(CommandHandler("announce_cl", announce_cl))
-    application.add_handler(CommandHandler("announce_st", announce_st))
+    application.add_handler(CommandHandler("mes_cl", mes_cl))
+    application.add_handler(CommandHandler("mes_st", mes_st))
+    application.add_handler(CommandHandler("mes_t", mes_t))
     application.add_handler(CommandHandler("poll", poll))
     application.add_handler(CommandHandler("add_rep", add_rep))
     application.add_handler(CommandHandler("remove_rep", remove_rep))
@@ -490,6 +805,13 @@ def main():
     application.add_handler(CommandHandler("ans_table", ans_table))
     application.add_handler(CommandHandler("new_user", new_user))
     application.add_handler(CommandHandler("help", help))
+    application.add_handler(CommandHandler("create_gr", create_gr))
+    application.add_handler(CommandHandler("add_gr", add_gr))
+    application.add_handler(CommandHandler("del_gr", del_gr))
+    application.add_handler(CommandHandler("delete_gr", delete_gr))
+    application.add_handler(CommandHandler("mes_gr", mes_gr))
+    application.add_handler(CommandHandler("add_bl", add_bl))
+    application.add_handler(CommandHandler("del_bl", del_bl))
     application.run_polling()
 
 
