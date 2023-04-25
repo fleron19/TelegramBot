@@ -37,6 +37,7 @@ async def les(update, context):
         context.args = ' '.join(update.message.text.split()[1:]).split('/')
         con = sqlite3.connect(DBNAME)
         td = date.today()
+        td = td + timedelta(days=int(context.args[0]))
         '''
         print(type(td))
         td = datetime.strptime("2023-04-18", '%Y-%m-%d').date()
@@ -61,10 +62,10 @@ async def les(update, context):
             schedule[elem[0]] = "Замена: " + str(elem[1]) + ' ' + str(elem[2])
         resstr = "\n".join(schedule)
         if resstr:
-            await update.message.reply_text('У Вас сегодня:')
+            await update.message.reply_text('Список уроков на ' + str(td)[5:] + ':')
             await update.message.reply_text(resstr)
         else:
-            await update.message.reply_text('Сегодня у вас нет уроков!')
+            await update.message.reply_text('У вас нет уроков ' + str(td)[5:] + '!')
     except:
         await update.message.reply_text('Ошибка!')
         await update.message.reply_text('Непредвиденная ошибка!')
